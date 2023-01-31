@@ -117,23 +117,23 @@ class BarSupplier(BaseSupplier):
 
         match bar_aggregation:
             case BarAggregation.VOLUME:
-                self.index = f"{self.alias}-VOLUME"
+                self.index = f"{self.alias}-{Bar.VOLUME}"
                 self.data = self._aggregate_bar(
                     data=self.supplier.data,
                     bar_aggregation=bar_aggregation,
                     size=self.size,
                 ).with_column(
-                    pl.col(f"{self.alias}-CLOSE")
+                    pl.col(f"{self.alias}-{Bar.CLOSE}")
                     .pct_change()
                     .fill_null(0)
-                    .alias(f"{self.alias}-RETURN")
+                    .alias(f"{self.alias}-{Bar.RETURN}")
                 )
             case elem if elem in (
                 BarAggregation.TIME_MILLISECONDS,
                 BarAggregation.TIME_SECONDS,
                 BarAggregation.TIME_MINUTES,
             ):
-                self.index = f"{self.alias}-TIMESTAMP"
+                self.index = f"{self.alias}-{Bar.TIMESTAMP}"
                 self.data = self._aggregate_bar(
                     data=self.supplier.data,
                     bar_aggregation=bar_aggregation,
@@ -143,10 +143,10 @@ class BarSupplier(BaseSupplier):
                 raise NotImplemented
 
         self.data = self.data.with_column(
-            pl.col(f"{self.alias}-CLOSE")
+            pl.col(f"{self.alias}-{Bar.CLOSE}")
             .pct_change()
             .fill_null(0)
-            .alias(f"{self.alias}-RETURN")
+            .alias(f"{self.alias}-{Bar.RETURN}")
         )
 
     def _aggregate_bar(
@@ -154,24 +154,24 @@ class BarSupplier(BaseSupplier):
     ) -> pl.DataFrame:
         # bar calculations
         agg_args = [
-            pl.col(TradeTick.PRICE).first().alias(f"{self.alias}-OPEN"),
-            pl.col(TradeTick.PRICE).min().alias(f"{self.alias}-LOW"),
-            pl.col(TradeTick.PRICE).max().alias(f"{self.alias}-HIGH"),
-            pl.col(TradeTick.PRICE).last().alias(f"{self.alias}-CLOSE"),
-            pl.col(TradeTick.QUANTITY).sum().alias(f"{self.alias}-VOLUME"),
-            pl.col(TradeTick.TIMESTAMP).last().alias(f"{self.alias}-TIMESTAMP"),
+            pl.col(TradeTick.PRICE).first().alias(f"{self.alias}-{Bar.OPEN}"),
+            pl.col(TradeTick.PRICE).min().alias(f"{self.alias}-{Bar.LOW}"),
+            pl.col(TradeTick.PRICE).max().alias(f"{self.alias}-{Bar.HIGH}"),
+            pl.col(TradeTick.PRICE).last().alias(f"{self.alias}-{Bar.CLOSE}"),
+            pl.col(TradeTick.QUANTITY).sum().alias(f"{self.alias}-{Bar.VOLUME}"),
+            pl.col(TradeTick.TIMESTAMP).last().alias(f"{self.alias}-{Bar.TIMESTAMP}"),
             (
                 (
                     pl.col(TradeTick.TIMESTAMP).last()
                     - pl.col(TradeTick.TIMESTAMP).first()
                 ).dt.seconds()
-            ).alias(f"{self.alias}-TIMEDELTA"),
+            ).alias(f"{self.alias}-{Bar.TIMEDELTA}"),
             ((pl.col(TradeTick.SIDE) == 0) * pl.col(TradeTick.QUANTITY))
             .sum()
-            .alias(f"{self.alias}-ASK_SIZE"),
+            .alias(f"{self.alias}-{Bar.ASK_SIZE}"),
             ((pl.col(TradeTick.SIDE) == 1) * pl.col(TradeTick.QUANTITY))
             .sum()
-            .alias(f"{self.alias}-BID_SIZE"),
+            .alias(f"{self.alias}-{Bar.BID_SIZE}"),
         ]
 
         match bar_aggregation:
@@ -188,7 +188,7 @@ class BarSupplier(BaseSupplier):
                     )
                     .groupby(temp_alias)
                     .agg(agg_args)
-                    .sort(f"{self.alias}-TIMESTAMP")
+                    .sort(f"{self.alias}-{Bar.TIMESTAMP}")
                     .drop([temp_alias])
                 )
                 return data
@@ -197,21 +197,21 @@ class BarSupplier(BaseSupplier):
                 data = (
                     data.groupby_dynamic(TradeTick.TIMESTAMP, every=f"{size}ms")
                     .agg(agg_args)
-                    .sort(f"{self.alias}-TIMESTAMP")
+                    .sort(f"{self.alias}-{Bar.TIMESTAMP}")
                 )
                 return data
             case BarAggregation.TIME_SECONDS:
                 data = (
                     data.groupby_dynamic(TradeTick.TIMESTAMP, every=f"{size}s")
                     .agg(agg_args)
-                    .sort(f"{self.alias}-TIMESTAMP")
+                    .sort(f"{self.alias}-{Bar.TIMESTAMP}")
                 )
                 return data
             case BarAggregation.TIME_MINUTES:
                 data = (
                     data.groupby_dynamic(TradeTick.TIMESTAMP, every=f"{60 * size}s")
                     .agg(agg_args)
-                    .sort(f"{self.alias}-TIMESTAMP")
+                    .sort(f"{self.alias}-{Bar.TIMESTAMP}")
                 )
                 return data
             case _:
@@ -226,60 +226,62 @@ class BarFeatureSupplier(BaseSupplier):
     supplier_type = "BarFeatureSupplier"
 
     def __init__(self, supplier: BarSupplier):
+        self.alias = f"{SupplierType.BAR_FEATURES}-{supplier.alias}"
+        print(self.alias)
         self.data = supplier.data.with_columns(
             [
-                (pl.col(Bar.RETURN) / pl.col(Bar.TIMEDELTA)).alias(
-                    BarFeatures.RETURN_TIMEDELTA
+                (pl.col(f"{supplier.alias}-{Bar.RETURN}") / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")).alias(
+                    f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}"
                 ),
-                (pl.col(Bar.BID_SIZE) / pl.col(Bar.TIMEDELTA))
+                (pl.col(f"{supplier.alias}-{Bar.BID_SIZE}") / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}"))
                 .fill_nan(0)
-                .alias(BarFeatures.BID_SIZE_TIMEDELTA),
-                (pl.col(Bar.ASK_SIZE) / pl.col(Bar.TIMEDELTA)).alias(
-                    BarFeatures.ASK_SIZE_TIMEDELTA
+                .alias(f"{self.alias}-{BarFeatures.BID_SIZE_TIMEDELTA}"),
+                (pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}") / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")).alias(
+                    f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}"
                 ),
-                (pl.col(Bar.ASK_SIZE) - pl.col(Bar.BID_SIZE)).alias(
-                    BarFeatures.VOLUME_DELTA
+                (pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}") - pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")).alias(
+                    f"{self.alias}-{BarFeatures.VOLUME_DELTA}"
                 ),
-                (pl.col(BarFeatures.BID_SIZE) + pl.col(BarFeatures.ASK_SIZE)).alias(
-                    BarFeatures.SIZE
+                (pl.col(f"{supplier.alias}-{Bar.BID_SIZE}") + pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")).alias(
+                    f"{self.alias}-{BarFeatures.SIZE}"
                 ),
             ]
         ).with_columns(
             [
                 pl.when(
-                    pl.col(BarFeatures.ASK_SIZE_TIMEDELTA).is_infinite()
-                    | pl.col(BarFeatures.ASK_SIZE_TIMEDELTA).is_nan()
+                    pl.col(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}").is_infinite()
+                    | pl.col(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}").is_nan()
                 )
                 .then(float(0))
-                .otherwise(pl.col(BarFeatures.ASK_SIZE_TIMEDELTA))
+                .otherwise(pl.col(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}"))
                 .keep_name(),
+                # pl.when(
+                #     pl.col(f"{supplier.alias}-{Bar.BID_SIZE}").is_infinite()
+                #     | pl.col(f"{supplier.alias}-{Bar.BID_SIZE}").is_nan()
+                # )
+                # .then(float(0))
+                # .otherwise(pl.col(f"{self.alias}-{BarFeatures.BID_SIZE_TIMEDELTA}"))
+                # .keep_name(),
                 pl.when(
-                    pl.col(BarFeatures.BID_SIZE_TIMEDELTA).is_infinite()
-                    | pl.col(BarFeatures.BID_SIZE_TIMEDELTA).is_nan()
+                    pl.col(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}").is_infinite()
+                    | pl.col(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}").is_nan()
                 )
                 .then(float(0))
-                .otherwise(pl.col(BarFeatures.BID_SIZE_TIMEDELTA))
+                .otherwise(pl.col(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}"))
                 .keep_name(),
-                pl.when(
-                    pl.col(BarFeatures.RETURN_TIMEDELTA).is_infinite()
-                    | pl.col(BarFeatures.RETURN_TIMEDELTA).is_nan()
-                )
-                .then(float(0))
-                .otherwise(pl.col(BarFeatures.RETURN_TIMEDELTA))
-                .keep_name(),
-                (pl.col(BarFeatures.BID_SIZE) - pl.col(BarFeatures.ASK_SIZE)).alias(
-                    BarFeatures.OFI
+                (pl.col(f"{supplier.alias}-{Bar.BID_SIZE}") - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")).alias(
+                    f"{self.alias}-{BarFeatures.OFI}"
                 ),
                 (
-                    (pl.col(BarFeatures.BID_SIZE) - pl.col(BarFeatures.ASK_SIZE))
-                    / pl.col(BarFeatures.SIZE)
-                ).alias(BarFeatures.OFI_NORMALIZED),
-                (pl.col(Bar.OPEN) / pl.col(Bar.HIGH)).alias(BarFeatures.OPEN_HIGH),
-                (pl.col(Bar.OPEN) / pl.col(Bar.LOW)).alias(BarFeatures.OPEN_LOW),
-                (pl.col(Bar.OPEN) / pl.col(Bar.CLOSE)).alias(BarFeatures.OPEN_CLOSE),
+                    (pl.col(f"{supplier.alias}-{Bar.BID_SIZE}") - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}"))
+                    / pl.col(f"{self.alias}-{BarFeatures.SIZE}")
+                ).alias(f"{self.alias}-{BarFeatures.OFI_NORMALIZED}"),
+                (pl.col(f"{supplier.alias}-{Bar.OPEN}") / pl.col(f"{supplier.alias}-{Bar.HIGH}")).alias(f"{self.alias}-{BarFeatures.OPEN_HIGH}"),
+                (pl.col(f"{supplier.alias}-{Bar.OPEN}") / pl.col(f"{supplier.alias}-{Bar.LOW}")).alias(f"{self.alias}-{BarFeatures.OPEN_LOW}"),
+                (pl.col(f"{supplier.alias}-{Bar.OPEN}") / pl.col(f"{supplier.alias}-{Bar.CLOSE}")).alias(f"{self.alias}-{BarFeatures.OPEN_CLOSE}"),
                 (
-                    (pl.col(Bar.CLOSE) - pl.col(Bar.LOW))
-                    / (pl.col(Bar.HIGH) - pl.col(Bar.LOW))
-                ).alias(BarFeatures.INTERNAL_BAR_STRENGTH),
+                    (pl.col(f"{supplier.alias}-{Bar.CLOSE}") - pl.col(f"{supplier.alias}-{Bar.LOW}"))
+                    / (pl.col(f"{supplier.alias}-{Bar.HIGH}") - pl.col(f"{supplier.alias}-{Bar.LOW}"))
+                ).alias(f"{self.alias}-{BarFeatures.INTERNAL_BAR_STRENGTH}"),
             ]
         )
