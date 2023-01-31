@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from enum import Enum
 
 import polars as pl
@@ -89,6 +89,10 @@ class BaseSupplier(ABC):
     def __init__(self):
         raise NotImplemented()
 
+    @property
+    @abstractmethod
+    def instruments(self):
+        pass
 
 class TickSupplier(BaseSupplier):
 
@@ -101,7 +105,9 @@ class TickSupplier(BaseSupplier):
     def from_parquet(self, filepath: str):
         self.data = pl.read_parquet(filepath)
 
-
+    @property
+    def instruments(self) -> list[str]:
+        return [self.instrument]
 class BarSupplier(BaseSupplier):
 
     supplier_type = "BarSupplier"
@@ -217,6 +223,10 @@ class BarSupplier(BaseSupplier):
             case _:
                 raise NotImplementedError
 
+    @property
+    def instruments(self) -> list[str]:
+        return [self.instrument]
+
     def from_parquet(self, filepath: str):
         self.data = pl.read_parquet(filepath)
 
@@ -226,8 +236,8 @@ class BarFeatureSupplier(BaseSupplier):
     supplier_type = "BarFeatureSupplier"
 
     def __init__(self, supplier: BarSupplier):
+        self.instrument = supplier.instrument
         self.alias = f"{SupplierType.BAR_FEATURES}-{supplier.alias}"
-        print(self.alias)
         self.data = supplier.data.with_columns(
             [
                 (pl.col(f"{supplier.alias}-{Bar.RETURN}") / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")).alias(
@@ -285,3 +295,13 @@ class BarFeatureSupplier(BaseSupplier):
                 ).alias(f"{self.alias}-{BarFeatures.INTERNAL_BAR_STRENGTH}"),
             ]
         )
+
+    @property
+    def instruments(self) -> list[str]:
+        return [self.instrument]
+    @property
+    def bar_features(self) -> list[str]:
+        feature_attributes = [e for e in BarFeatures.__dict__ if "__" not in e]
+        return [
+            f"{self.alias}-{feature}" for feature in feature_attributes
+        ]
