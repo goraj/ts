@@ -224,6 +224,13 @@ class BarSupplier(BaseSupplier):
                 raise NotImplementedError
 
     @property
+    def bars(self) -> list[str]:
+        bar_attributes = [e for e in Bar.__dict__ if "__" not in e]
+        return [
+            f"{self.alias}-{bar_attribute}" for bar_attribute in bar_attributes
+        ]
+
+    @property
     def instruments(self) -> list[str]:
         return [self.instrument]
 
@@ -303,5 +310,5 @@ class BarFeatureSupplier(BaseSupplier):
     def bar_features(self) -> list[str]:
         feature_attributes = [e for e in BarFeatures.__dict__ if "__" not in e]
         return [
-            f"{self.alias}-{feature}" for feature in feature_attributes
+            f"{self.alias}-{feature_attribute}" for feature_attribute in feature_attributes
         ]
