@@ -1,33 +1,12 @@
 from abc import ABC, abstractmethod
-from enum import Enum
-
+import numpy as np
 import polars as pl
-
-"""
-proposal
-tick_supplier = TickSupplier().read_parquet("CME-ES.parquet")
-feat_supplier = MultiplexSupplier(
-    suppliers=[
-        TickFeatureSupplier(tick_supplier),
-        BarFeatureSupplier(
-            MultiplexSupplier(
-                suppliers=[
-                    BarSupplier(tick_supplier, bar_aggregation=BarAggregation.VOLUME, size=1000),
-                    BarSupplier(tick_supplier, bar_aggregation=BarAggregation.VOLUME, size=10000)
-                ]
-            )
-        )
-    ]
-)
-
-
-"""
-
 
 class SupplierType:
     TICK = "tick"
     BAR = "bar"
     BAR_FEATURES = "bar_features"
+    MULTIPLEX = "multiplex"
 
 
 class BarAggregation:
@@ -45,6 +24,8 @@ class TradeTick:
 
 
 class Bar:
+    INDEX = "index"
+
     OPEN = "open"
     LOW = "low"
     HIGH = "high"
@@ -123,7 +104,7 @@ class BarSupplier(BaseSupplier):
 
         match bar_aggregation:
             case BarAggregation.VOLUME:
-                self.index = f"{self.alias}-{Bar.VOLUME}"
+                #self.index = f"{self.alias}-{Bar.VOLUME}"
                 self.data = self._aggregate_bar(
                     data=self.supplier.data,
                     bar_aggregation=bar_aggregation,
@@ -182,7 +163,7 @@ class BarSupplier(BaseSupplier):
 
         match bar_aggregation:
             case BarAggregation.VOLUME:
-                temp_alias = "bar"
+                temp_alias = f"{self.alias}-{Bar.INDEX}"
                 data = (
                     data.with_column(
                         (
@@ -218,6 +199,7 @@ class BarSupplier(BaseSupplier):
                     data.groupby_dynamic(TradeTick.TIMESTAMP, every=f"{60 * size}s")
                     .agg(agg_args)
                     .sort(f"{self.alias}-{Bar.TIMESTAMP}")
+                    .drop(TradeTick.TIMESTAMP)
                 )
                 return data
             case _:
@@ -244,7 +226,11 @@ class BarFeatureSupplier(BaseSupplier):
 
     def __init__(self, supplier: BarSupplier):
         self.instrument = supplier.instrument
+        self.bar_aggregation = supplier.bar_aggregation
+        self.size = supplier.size
         self.alias = f"{SupplierType.BAR_FEATURES}-{supplier.alias}"
+        self.index = supplier.index
+
         self.data = supplier.data.with_columns(
             [
                 (pl.col(f"{supplier.alias}-{Bar.RETURN}") / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")).alias(
@@ -311,4 +297,42 @@ class BarFeatureSupplier(BaseSupplier):
         feature_attributes = [e for e in BarFeatures.__dict__ if "__" not in e]
         return [
             f"{self.alias}-{feature_attribute}" for feature_attribute in feature_attributes
+        ]
+
+class MultiplexSupplier(BaseSupplier):
+
+    supplier_type = "MultiplexSupplier"
+
+    def __init__(self, suppliers: list[BarSupplier]):
+        self.alias = SupplierType.MULTIPLEX
+        self._instruments = []
+        self._bar_features = []
+
+        aggregation_types = [supplier.bar_aggregation for supplier in suppliers]
+        if not all([agg_type == suppliers[0].bar_aggregation for agg_type in aggregation_types]):
+            raise RuntimeError(f"Require common BarAggregation type. Passed: {aggregation_types}")
+
+        aggregation_sizes = [supplier.size for supplier in suppliers]
+        min_aggregation_size = min(aggregation_sizes)
+        if not all([(agg_size % min_aggregation_size) == 0 for agg_size in aggregation_sizes]):
+            raise RuntimeError(f"BarAggregation sizes need to be integer factor of highest frequency.")
+
+        suppliers = [suppliers[i] for i in np.argsort(aggregation_sizes)]
+        self.data = suppliers[0].data
+        index_col = suppliers[0].index
+        for supplier in suppliers[1:]:
+            self.data = self.data.join_asof(supplier.data, left_on=index_col, right_on=supplier.index)
+
+            if supplier.instrument not in self._instruments:
+                self._instruments.append(supplier.instrument)
+
+    @property
+    def instruments(self) -> list[str]:
+        return self._instruments
+    @property
+    def bar_features(self) -> list[str]:
+        return [
+            column
+            for column in self.data.columns
+            if SupplierType.BAR_FEATURES in column
         ]
