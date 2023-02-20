@@ -135,3 +135,34 @@ model.fit(
   * Features.MA
   * Features.VOLATILITY
 * RollingNormSupplier: Normalize assets / features / bars according.
+
+
+import pyarrow as pa
+from pyarrow import csv
+import connectorx as cx
+
+db_uri = "postgresql://username:password@server:port/database"
+query = "select * from db.schema.table"
+table = cx.read_sql(db_uri, query, return_type="arrow")
+csv.write_csv(table, "table.csv")
+
+
+
+
+
+Day 0: x_d0_{0,0}, x_d0_{0,1}, x_d0_{1,0}, x_d0_{1,1}
+Day 1: X_d1_{0,0}, x_d1_{0,1}, x_d1_{1,0}, x_d1_{1,1}
+Day 2: x_d2_{0,0}, x_d2_{0,1}, x_d2_{1,0}, x_d2_{1,1}
+Day 3: x_d3_{0,0}, x_d3_{0,1}, x_d3_{1,0}, x_d3_{1,1}
+
+Day 0: norm_x_d0_{0,0} = nan, norm_x_d0_{0,1} = nan, norm_x_d0_{1,0} = nan, norm_x_d0_{1,1} = nan
+Day 1: norm_x_d1_{0,0} = nan, norm_x_d1_{0,1} = nan, norm_x_d1_{1,0} = nan, norm_x_d1_{1,1} = nan
+Day 2: norm_x_d2_{0,0} = nan, norm_x_d2_{0,1} = nan, norm_x_d2_{1,0} = nan, norm_x_d2_{1,1} = nan
+Day 3: norm_x_d3_{0,0} = (x_d3_{0,0} - np.mean([x_d0_{0,0}, x_d0_{0,1}, X_d1_{0,0}, ..., x_d3_{0,1}] / np.std([x_d0_{0,0}, x_d0_{0,1}, X_d1_{0,0}, ...,  x_d3_{0,1}])) , ... , 
+
+
+
+
+Day 0: bin_d0_{0,0} = nan, bin_d0_{0,1} = nan, bin_d0_{1,0} = nan, bin_d0_{1,1} = nan
+Day 1: bin_d1_{0,0}, bin_d0_{0,1}, bin_d0_{1,0}, bin_d0_{1,1}
+Day 2: bin_d2_{0,0}, bin_d0_{0,1}, bin_d0_{1,0}, bin_d0_{1,1}

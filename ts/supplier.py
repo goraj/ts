@@ -2,6 +2,12 @@ from abc import ABC, abstractmethod
 import numpy as np
 import polars as pl
 
+def vwap(supplier):
+
+    pass
+class FUNCTIONS:
+    VWAP = vwap
+
 class SupplierType:
     TICK = "tick"
     BAR = "bar"
@@ -10,10 +16,10 @@ class SupplierType:
 
 
 class BarAggregation:
-    VOLUME = "volume"
-    TIME_MILLISECONDS = "time_milliseconds"
-    TIME_SECONDS = "time_seconds"
-    TIME_MINUTES = "time_minutes"
+    VOLUME = "volume_agg"
+    TIME_MILLISECONDS = "time_milliseconds_agg"
+    TIME_SECONDS = "time_seconds_agg"
+    TIME_MINUTES = "time_minutes_agg"
 
 
 class TradeTick:
@@ -24,7 +30,8 @@ class TradeTick:
 
 
 class Bar:
-    INDEX = "index"
+    # private index used for processing only
+    __INDEX__ = "index"
 
     OPEN = "open"
     LOW = "low"
@@ -36,7 +43,7 @@ class Bar:
 
     ASK_SIZE = "ask_size"
     BID_SIZE = "bid_size"
-    SIZE = "size"
+    #SIZE = "size"
 
     RETURN = "return"
 
@@ -75,6 +82,7 @@ class BaseSupplier(ABC):
     def instruments(self):
         pass
 
+
 class TickSupplier(BaseSupplier):
 
     supplier_type = "TickSupplier"
@@ -89,6 +97,8 @@ class TickSupplier(BaseSupplier):
     @property
     def instruments(self) -> list[str]:
         return [self.instrument]
+
+
 class BarSupplier(BaseSupplier):
 
     supplier_type = "BarSupplier"
@@ -104,7 +114,7 @@ class BarSupplier(BaseSupplier):
 
         match bar_aggregation:
             case BarAggregation.VOLUME:
-                #self.index = f"{self.alias}-{Bar.VOLUME}"
+                # self.index = f"{self.alias}-{Bar.VOLUME}"
                 self.data = self._aggregate_bar(
                     data=self.supplier.data,
                     bar_aggregation=bar_aggregation,
@@ -163,14 +173,13 @@ class BarSupplier(BaseSupplier):
 
         match bar_aggregation:
             case BarAggregation.VOLUME:
-                temp_alias = f"{self.alias}-{Bar.INDEX}"
+                temp_alias = f"{self.alias}-{Bar.__INDEX__}"
                 data = (
                     data.with_column(
                         (
                             (pl.col(TradeTick.QUANTITY).cumsum() / size).cast(
                                 pl.UInt64, strict=False
-                            )
-                            * size
+                            ) * size
                         ).alias(temp_alias)
                     )
                     .groupby(temp_alias)
@@ -208,9 +217,7 @@ class BarSupplier(BaseSupplier):
     @property
     def bars(self) -> list[str]:
         bar_attributes = [e for e in Bar.__dict__ if "__" not in e]
-        return [
-            f"{self.alias}-{bar_attribute}" for bar_attribute in bar_attributes
-        ]
+        return [f"{self.alias}-{bar_attribute.lower()}" for bar_attribute in bar_attributes]
 
     @property
     def instruments(self) -> list[str]:
@@ -233,26 +240,35 @@ class BarFeatureSupplier(BaseSupplier):
 
         self.data = supplier.data.with_columns(
             [
-                (pl.col(f"{supplier.alias}-{Bar.RETURN}") / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")).alias(
-                    f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}"
-                ),
-                (pl.col(f"{supplier.alias}-{Bar.BID_SIZE}") / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}"))
+                (
+                    pl.col(f"{supplier.alias}-{Bar.RETURN}")
+                    / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
+                ).alias(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}"),
+                (
+                    pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
+                    / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
+                )
                 .fill_nan(0)
                 .alias(f"{self.alias}-{BarFeatures.BID_SIZE_TIMEDELTA}"),
-                (pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}") / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")).alias(
-                    f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}"
-                ),
-                (pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}") - pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")).alias(
-                    f"{self.alias}-{BarFeatures.VOLUME_DELTA}"
-                ),
-                (pl.col(f"{supplier.alias}-{Bar.BID_SIZE}") + pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")).alias(
-                    f"{self.alias}-{BarFeatures.SIZE}"
-                ),
+                (
+                    pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
+                    / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
+                ).alias(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}"),
+                (
+                    pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
+                    - pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
+                ).alias(f"{self.alias}-{BarFeatures.VOLUME_DELTA}"),
+                (
+                    pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
+                    + pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
+                ).alias(f"{self.alias}-{BarFeatures.SIZE}"),
             ]
         ).with_columns(
             [
                 pl.when(
-                    pl.col(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}").is_infinite()
+                    pl.col(
+                        f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}"
+                    ).is_infinite()
                     | pl.col(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}").is_nan()
                 )
                 .then(float(0))
@@ -272,19 +288,38 @@ class BarFeatureSupplier(BaseSupplier):
                 .then(float(0))
                 .otherwise(pl.col(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}"))
                 .keep_name(),
-                (pl.col(f"{supplier.alias}-{Bar.BID_SIZE}") - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")).alias(
-                    f"{self.alias}-{BarFeatures.OFI}"
-                ),
                 (
-                    (pl.col(f"{supplier.alias}-{Bar.BID_SIZE}") - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}"))
+                    pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
+                    - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
+                ).alias(f"{self.alias}-{BarFeatures.OFI}"),
+                (
+                    (
+                        pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
+                        - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
+                    )
                     / pl.col(f"{self.alias}-{BarFeatures.SIZE}")
                 ).alias(f"{self.alias}-{BarFeatures.OFI_NORMALIZED}"),
-                (pl.col(f"{supplier.alias}-{Bar.OPEN}") / pl.col(f"{supplier.alias}-{Bar.HIGH}")).alias(f"{self.alias}-{BarFeatures.OPEN_HIGH}"),
-                (pl.col(f"{supplier.alias}-{Bar.OPEN}") / pl.col(f"{supplier.alias}-{Bar.LOW}")).alias(f"{self.alias}-{BarFeatures.OPEN_LOW}"),
-                (pl.col(f"{supplier.alias}-{Bar.OPEN}") / pl.col(f"{supplier.alias}-{Bar.CLOSE}")).alias(f"{self.alias}-{BarFeatures.OPEN_CLOSE}"),
                 (
-                    (pl.col(f"{supplier.alias}-{Bar.CLOSE}") - pl.col(f"{supplier.alias}-{Bar.LOW}"))
-                    / (pl.col(f"{supplier.alias}-{Bar.HIGH}") - pl.col(f"{supplier.alias}-{Bar.LOW}"))
+                    pl.col(f"{supplier.alias}-{Bar.OPEN}")
+                    / pl.col(f"{supplier.alias}-{Bar.HIGH}")
+                ).alias(f"{self.alias}-{BarFeatures.OPEN_HIGH}"),
+                (
+                    pl.col(f"{supplier.alias}-{Bar.OPEN}")
+                    / pl.col(f"{supplier.alias}-{Bar.LOW}")
+                ).alias(f"{self.alias}-{BarFeatures.OPEN_LOW}"),
+                (
+                    pl.col(f"{supplier.alias}-{Bar.OPEN}")
+                    / pl.col(f"{supplier.alias}-{Bar.CLOSE}")
+                ).alias(f"{self.alias}-{BarFeatures.OPEN_CLOSE}"),
+                (
+                    (
+                        pl.col(f"{supplier.alias}-{Bar.CLOSE}")
+                        - pl.col(f"{supplier.alias}-{Bar.LOW}")
+                    )
+                    / (
+                        pl.col(f"{supplier.alias}-{Bar.HIGH}")
+                        - pl.col(f"{supplier.alias}-{Bar.LOW}")
+                    )
                 ).alias(f"{self.alias}-{BarFeatures.INTERNAL_BAR_STRENGTH}"),
             ]
         )
@@ -292,12 +327,15 @@ class BarFeatureSupplier(BaseSupplier):
     @property
     def instruments(self) -> list[str]:
         return [self.instrument]
+
     @property
     def bar_features(self) -> list[str]:
         feature_attributes = [e for e in BarFeatures.__dict__ if "__" not in e]
         return [
-            f"{self.alias}-{feature_attribute}" for feature_attribute in feature_attributes
+            f"{self.alias}-{feature_attribute}"
+            for feature_attribute in feature_attributes
         ]
+
 
 class MultiplexSupplier(BaseSupplier):
 
@@ -308,27 +346,64 @@ class MultiplexSupplier(BaseSupplier):
         self._instruments = []
         self._bar_features = []
 
+        if any([not isinstance(supplier, BarSupplier) for supplier in suppliers]):
+            raise RuntimeError(
+                f"Only BarSupplies supported. Passed: {suppliers = }."
+            )
+
         aggregation_types = [supplier.bar_aggregation for supplier in suppliers]
-        if not all([agg_type == suppliers[0].bar_aggregation for agg_type in aggregation_types]):
-            raise RuntimeError(f"Require common BarAggregation type. Passed: {aggregation_types}")
+        if not all(
+            [agg_type == suppliers[0].bar_aggregation for agg_type in aggregation_types]
+        ):
+            raise RuntimeError(
+                f"Require common BarAggregation type. Passed: {aggregation_types}"
+            )
 
         aggregation_sizes = [supplier.size for supplier in suppliers]
         min_aggregation_size = min(aggregation_sizes)
-        if not all([(agg_size % min_aggregation_size) == 0 for agg_size in aggregation_sizes]):
-            raise RuntimeError(f"BarAggregation sizes need to be integer factor of highest frequency.")
+        if not all(
+            [(agg_size % min_aggregation_size) == 0 for agg_size in aggregation_sizes]
+        ):
+            raise RuntimeError(
+                f"BarAggregation sizes need to be integer factor of highest frequency."
+            )
 
         suppliers = [suppliers[i] for i in np.argsort(aggregation_sizes)]
-        self.data = suppliers[0].data
-        index_col = suppliers[0].index
+
+        left_supplier = suppliers[0]
+
+        left_index_col = f"{left_supplier.alias}-timestamp"
+
+        self.data = left_supplier.data
+        self._instruments.append(left_supplier.instrument)
+
         for supplier in suppliers[1:]:
-            self.data = self.data.join_asof(supplier.data, left_on=index_col, right_on=supplier.index)
+            right_index_col = f"{supplier.alias}-timestamp"
+            self.data = self.data.join_asof(
+                supplier.data, left_on=left_index_col, right_on=right_index_col
+            )
+            if supplier.instrument not in self._instruments:
+                self._instruments.append(supplier.instrument)
+        """
+
+        self.data = suppliers[0].data
+        self._instruments.append(suppliers[0].instrument)
+
+
+        left_index_col = f"{suppliers[0].alias}-timestamp"
+        for supplier in suppliers[1:]:
+            right_index_col = f"{supplier.alias}-timestamp"
+            self.data = self.data.join_asof(
+                supplier.data, left_on=left_index_col, right_on=right_index_col
+            )
 
             if supplier.instrument not in self._instruments:
                 self._instruments.append(supplier.instrument)
-
+        """
     @property
     def instruments(self) -> list[str]:
         return self._instruments
+
     @property
     def bar_features(self) -> list[str]:
         return [
