@@ -6,7 +6,7 @@ setup(
     packages=['ts'],
     url='',
     license='',
-    author='jacob gora',
+    author='Jacob Gora',
     author_email='',
     description='',
     install_requires=[

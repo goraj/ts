@@ -2,12 +2,14 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
 # C extensions
 *.so
 
 # Distribution / packaging
 .Python
+.idea/
+.ipynb_checkpoints/
+.pytest_cache/
 build/
 develop-eggs/
 dist/
