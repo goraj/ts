@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
+from re import match
+
 import numpy as np
 import polars as pl
-from re import match
+
 
 class SupplierType:
     TICK = "tick"
@@ -62,8 +64,9 @@ class Bar:
 
 
 def match_col(col_alias: str, col_attr: str, column: str) -> bool:
-    """Matches column name against col_alias, col_attr ie: (Bar, Bar.OPEN) """
+    """Matches column name against col_alias, col_attr ie: (Bar, Bar.OPEN)"""
     return match(f"^{col_alias}.*-{col_attr}($|-.*)", column) is not None
+
 
 class BarFeatures(Bar):
     @staticmethod
@@ -100,11 +103,10 @@ class BarFeatures(Bar):
 
 
 class BaseSupplier(ABC):
-
     supplier_type = "BaseSupplier"
 
     def __init__(self):
-        raise NotImplemented()
+        raise NotImplemented
 
     @property
     @abstractmethod
@@ -113,7 +115,6 @@ class BaseSupplier(ABC):
 
 
 class TickSupplier(BaseSupplier):
-
     supplier_type = "TickSupplier"
 
     def __init__(self, instrument: str):
@@ -129,12 +130,9 @@ class TickSupplier(BaseSupplier):
 
 
 class BarSupplier(BaseSupplier):
-
     supplier_type = "BarSupplier"
 
-    def __init__(
-        self, supplier: TickSupplier, bar_aggregation: BarAggregation, size: int
-    ):
+    def __init__(self, supplier: TickSupplier, bar_aggregation: str, size: int):
         self.supplier = supplier
         self.instrument = supplier.instrument
         self.bar_aggregation = bar_aggregation
@@ -181,7 +179,7 @@ class BarSupplier(BaseSupplier):
         )
 
     def _aggregate_bar(
-        self, data: pl.DataFrame, bar_aggregation: BarAggregation, size: int
+        self, data: pl.DataFrame, bar_aggregation: str, size: int
     ) -> pl.DataFrame:
         # bar calculations
         agg_args = [
@@ -263,7 +261,7 @@ class BarSupplier(BaseSupplier):
     def from_parquet(self, filepath: str):
         self.data = pl.read_parquet(filepath)
 
-    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str:
+    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str | None:
         columns = [
             col
             for col in self.data.columns
@@ -272,8 +270,8 @@ class BarSupplier(BaseSupplier):
         if columns:
             return columns[0]
 
-class BarFeatureSupplier(BaseSupplier):
 
+class BarFeatureSupplier(BaseSupplier):
     supplier_type = "BarFeatureSupplier"
 
     def __init__(self, supplier: BarSupplier):
@@ -386,7 +384,7 @@ class BarFeatureSupplier(BaseSupplier):
             for feature_attribute in feature_attributes
         ]
 
-    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str:
+    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str | None:
         columns = [
             col
             for col in self.data.columns
@@ -397,7 +395,6 @@ class BarFeatureSupplier(BaseSupplier):
 
 
 class MultiplexSupplier(BaseSupplier):
-
     supplier_type = "MultiplexSupplier"
 
     def __init__(self, suppliers: list[BarSupplier]):
@@ -454,18 +451,15 @@ class MultiplexSupplier(BaseSupplier):
             if SupplierType.BAR_FEATURES in column
         ]
 
-    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str:
-        columns = [
+    def get_cols(self, col_type: Bar | BarFeatures, type_attr: str) -> list[str] | None:
+        return [
             col
             for col in self.data.columns
             if match_col(col_type.alias(), type_attr, col)
         ]
-        if columns:
-            return columns[0]
 
 
 class RollingFeaturesSupplier(BaseSupplier):
-
     supplier_type = "RollingFeaturesSupplier"
 
     def __init__(self, supplier: BarSupplier):

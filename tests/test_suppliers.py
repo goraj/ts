@@ -1,11 +1,13 @@
-import pytest
-import polars as pl
 import datetime
 import zoneinfo
-from ts.supplier import TickSupplier, BarSupplier, BarAggregation, MultiplexSupplier
+
+import polars as pl
+import pytest
+
+from ts.supplier import BarAggregation, BarSupplier, MultiplexSupplier, TickSupplier
 
 
-def make_tick_supplier(instrument: str):
+def make_tick_supplier(instrument: str) -> TickSupplier:
     supplier = TickSupplier(instrument=instrument)
     supplier.data = pl.DataFrame(
         {
@@ -42,13 +44,15 @@ def make_tick_supplier(instrument: str):
 
 
 @pytest.fixture
-def tick_supplier():
+def tick_supplier() -> TickSupplier:
     return make_tick_supplier(instrument="CME-HO")
 
 
 @pytest.fixture
 def bar_supplier(tick_supplier):
-    supplier = BarSupplier(tick_supplier, bar_aggregation=BarAggregation.VOLUME, size=1)
+    supplier = BarSupplier(
+        supplier=tick_supplier, bar_aggregation=BarAggregation.VOLUME, size=1
+    )
     return supplier
 
 
@@ -83,6 +87,7 @@ class TestBarSupplier:
 
     def test_get_col(self, bar_supplier):
         from ts.supplier import Bar, BarFeatures
+
         assert bar_supplier.get_col(Bar, Bar.VOLUME) == "bar-CME-HO-volume_agg-1-volume"
 
     def test_bar_aggregation_volume(self, tick_supplier):
