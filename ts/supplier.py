@@ -1,17 +1,13 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import polars as pl
-
-def vwap(supplier):
-
-    pass
-class FUNCTIONS:
-    VWAP = vwap
+from re import match
 
 class SupplierType:
     TICK = "tick"
     BAR = "bar"
     BAR_FEATURES = "bar_features"
+    ROLLING_FEATURES = "rolling_features"
     MULTIPLEX = "multiplex"
 
 
@@ -23,6 +19,14 @@ class BarAggregation:
 
 
 class TradeTick:
+    @staticmethod
+    def alias():
+        return SupplierType.TICK
+
+    @staticmethod
+    def get_members():
+        return [e for e in list(TradeTick.__dict__) if e.upper() == e and "__" not in e]
+
     QUANTITY = "quantity"
     PRICE = "price"
     TIMESTAMP = "timestamp"
@@ -30,6 +34,14 @@ class TradeTick:
 
 
 class Bar:
+    @staticmethod
+    def alias():
+        return SupplierType.BAR
+
+    @staticmethod
+    def get_members():
+        return [e for e in list(Bar.__dict__) if e.upper() == e and "__" not in e]
+
     # private index used for processing only
     __INDEX__ = "index"
 
@@ -43,12 +55,27 @@ class Bar:
 
     ASK_SIZE = "ask_size"
     BID_SIZE = "bid_size"
-    #SIZE = "size"
+    # SIZE = "size"
 
     RETURN = "return"
+    LOG_RETURN = "log_return"
 
+
+def match_col(col_alias: str, col_attr: str, column: str) -> bool:
+    """Matches column name against col_alias, col_attr ie: (Bar, Bar.OPEN) """
+    return match(f"^{col_alias}.*-{col_attr}($|-.*)", column) is not None
 
 class BarFeatures(Bar):
+    @staticmethod
+    def alias():
+        return SupplierType.BAR_FEATURES
+
+    @staticmethod
+    def get_members():
+        return [
+            e for e in list(BarFeatures.__dict__) if e.upper() == e and "__" not in e
+        ]
+
     # velocity ratios
     RETURN_TIMEDELTA = f"{Bar.RETURN}_{Bar.TIMEDELTA}"
     BID_SIZE_TIMEDELTA = f"{Bar.BID_SIZE}_{Bar.TIMEDELTA}"
@@ -57,7 +84,9 @@ class BarFeatures(Bar):
     RETURN_BID_SIZE = f"{Bar.RETURN}_{Bar.BID_SIZE}"
     RETURN_ASK_SIZE = f"{Bar.RETURN}_{Bar.ASK_SIZE}"
 
+    VOLUME = f"{Bar.VOLUME}"
     VOLUME_DELTA = f"{Bar.VOLUME}_delta"
+
     CUMULATIVE_VOLUME_DELTA = f"cumulative_{Bar.VOLUME}_delta"
     INTERNAL_BAR_STRENGTH = "internal_bar_strength"
 
@@ -139,11 +168,16 @@ class BarSupplier(BaseSupplier):
             case _:
                 raise NotImplemented
 
-        self.data = self.data.with_column(
-            pl.col(f"{self.alias}-{Bar.CLOSE}")
-            .pct_change()
-            .fill_null(0)
-            .alias(f"{self.alias}-{Bar.RETURN}")
+        self.data = self.data.with_columns(
+            [
+                pl.col(f"{self.alias}-{Bar.CLOSE}")
+                .pct_change()
+                .fill_null(0)
+                .alias(f"{self.alias}-{Bar.RETURN}"),
+                np.log1p(
+                    pl.col(f"{self.alias}-{Bar.CLOSE}").pct_change().fill_null(0)
+                ).alias(f"{self.alias}-{Bar.LOG_RETURN}"),
+            ]
         )
 
     def _aggregate_bar(
@@ -179,7 +213,8 @@ class BarSupplier(BaseSupplier):
                         (
                             (pl.col(TradeTick.QUANTITY).cumsum() / size).cast(
                                 pl.UInt64, strict=False
-                            ) * size
+                            )
+                            * size
                         ).alias(temp_alias)
                     )
                     .groupby(temp_alias)
@@ -216,8 +251,10 @@ class BarSupplier(BaseSupplier):
 
     @property
     def bars(self) -> list[str]:
-        bar_attributes = [e for e in Bar.__dict__ if "__" not in e]
-        return [f"{self.alias}-{bar_attribute.lower()}" for bar_attribute in bar_attributes]
+        bar_attributes = Bar.get_members()
+        return [
+            f"{self.alias}-{bar_attribute.lower()}" for bar_attribute in bar_attributes
+        ]
 
     @property
     def instruments(self) -> list[str]:
@@ -226,12 +263,21 @@ class BarSupplier(BaseSupplier):
     def from_parquet(self, filepath: str):
         self.data = pl.read_parquet(filepath)
 
+    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str:
+        columns = [
+            col
+            for col in self.data.columns
+            if match_col(col_type.alias(), type_attr, col)
+        ]
+        if columns:
+            return columns[0]
 
 class BarFeatureSupplier(BaseSupplier):
 
     supplier_type = "BarFeatureSupplier"
 
     def __init__(self, supplier: BarSupplier):
+        self.supplier = supplier
         self.instrument = supplier.instrument
         self.bar_aggregation = supplier.bar_aggregation
         self.size = supplier.size
@@ -261,7 +307,7 @@ class BarFeatureSupplier(BaseSupplier):
                 (
                     pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
                     + pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
-                ).alias(f"{self.alias}-{BarFeatures.SIZE}"),
+                ).alias(f"{self.alias}-{BarFeatures.VOLUME}"),
             ]
         ).with_columns(
             [
@@ -297,7 +343,7 @@ class BarFeatureSupplier(BaseSupplier):
                         pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
                         - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
                     )
-                    / pl.col(f"{self.alias}-{BarFeatures.SIZE}")
+                    / pl.col(f"{self.alias}-{Bar.VOLUME}")
                 ).alias(f"{self.alias}-{BarFeatures.OFI_NORMALIZED}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.OPEN}")
@@ -329,12 +375,25 @@ class BarFeatureSupplier(BaseSupplier):
         return [self.instrument]
 
     @property
+    def bars(self) -> list[str]:
+        return self.supplier.bars
+
+    @property
     def bar_features(self) -> list[str]:
-        feature_attributes = [e for e in BarFeatures.__dict__ if "__" not in e]
+        feature_attributes = BarFeatures.get_members()
         return [
             f"{self.alias}-{feature_attribute}"
             for feature_attribute in feature_attributes
         ]
+
+    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str:
+        columns = [
+            col
+            for col in self.data.columns
+            if match_col(col_type.alias(), type_attr, col)
+        ]
+        if columns:
+            return columns[0]
 
 
 class MultiplexSupplier(BaseSupplier):
@@ -347,9 +406,7 @@ class MultiplexSupplier(BaseSupplier):
         self._bar_features = []
 
         if any([not isinstance(supplier, BarSupplier) for supplier in suppliers]):
-            raise RuntimeError(
-                f"Only BarSupplies supported. Passed: {suppliers = }."
-            )
+            raise RuntimeError(f"Only BarSupplies supported. Passed: {suppliers = }.")
 
         aggregation_types = [supplier.bar_aggregation for supplier in suppliers]
         if not all(
@@ -384,22 +441,7 @@ class MultiplexSupplier(BaseSupplier):
             )
             if supplier.instrument not in self._instruments:
                 self._instruments.append(supplier.instrument)
-        """
 
-        self.data = suppliers[0].data
-        self._instruments.append(suppliers[0].instrument)
-
-
-        left_index_col = f"{suppliers[0].alias}-timestamp"
-        for supplier in suppliers[1:]:
-            right_index_col = f"{supplier.alias}-timestamp"
-            self.data = self.data.join_asof(
-                supplier.data, left_on=left_index_col, right_on=right_index_col
-            )
-
-            if supplier.instrument not in self._instruments:
-                self._instruments.append(supplier.instrument)
-        """
     @property
     def instruments(self) -> list[str]:
         return self._instruments
@@ -411,3 +453,28 @@ class MultiplexSupplier(BaseSupplier):
             for column in self.data.columns
             if SupplierType.BAR_FEATURES in column
         ]
+
+    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str:
+        columns = [
+            col
+            for col in self.data.columns
+            if match_col(col_type.alias(), type_attr, col)
+        ]
+        if columns:
+            return columns[0]
+
+
+class RollingFeaturesSupplier(BaseSupplier):
+
+    supplier_type = "RollingFeaturesSupplier"
+
+    def __init__(self, supplier: BarSupplier):
+        raise NotImplementedError
+
+    @property
+    def instruments(self) -> list[str]:
+        return []
+
+    @property
+    def bar_features(self) -> list[str]:
+        return []
