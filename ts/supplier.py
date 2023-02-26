@@ -1,8 +1,11 @@
+import logging
 from abc import ABC, abstractmethod
 from re import match
 
 import numpy as np
 import polars as pl
+
+logger = logging.getLogger()
 
 
 class SupplierType:
@@ -401,12 +404,18 @@ class BarFeatureSupplier(BaseSupplier):
 class MultiplexSupplier(BaseSupplier):
     supplier_type = "MultiplexSupplier"
 
-    def __init__(self, suppliers: list[BarSupplier]):
+    def __init__(self, suppliers: list[BarSupplier, BarFeatureSupplier]):
         self.alias = SupplierType.MULTIPLEX
         self._instruments = []
         self._bar_features = []
 
-        if any([not isinstance(supplier, BarSupplier) for supplier in suppliers]):
+        if not all(
+            [
+                isinstance(supplier, BarSupplier)
+                or isinstance(supplier, BarFeatureSupplier)
+                for supplier in suppliers
+            ]
+        ):
             raise RuntimeError(f"Only BarSupplies supported. Passed: {suppliers = }.")
 
         aggregation_types = [supplier.bar_aggregation for supplier in suppliers]
@@ -429,14 +438,12 @@ class MultiplexSupplier(BaseSupplier):
         suppliers = [suppliers[i] for i in np.argsort(aggregation_sizes)]
 
         left_supplier = suppliers[0]
-
-        left_index_col = f"{left_supplier.alias}-timestamp"
+        left_index_col = left_supplier.index
 
         self.data = left_supplier.data
         self._instruments.append(left_supplier.instrument)
-
         for supplier in suppliers[1:]:
-            right_index_col = f"{supplier.alias}-timestamp"
+            right_index_col = supplier.index
             self.data = self.data.join_asof(
                 supplier.data, left_on=left_index_col, right_on=right_index_col
             )
@@ -484,24 +491,43 @@ class RollingFeaturesSupplier(BaseSupplier):
 
     def __init__(
         self,
-        supplier: BarFeatureSupplier,
+        supplier: BarFeatureSupplier | MultiplexSupplier,
         type_attributes: list[str],
         functions: list[str],
         window_size: int = 10,
     ):
         self.alias = SupplierType.MULTIPLEX
-        for function in functions:
-            for type_attr in type_attributes:
-                column = supplier.get_col(BarFeatures, type_attr)
-                print(f"{column =}")
 
-                try:
-                    func = getattr(Function, function)
-                except AttributeError:
-                    raise ValueError(f"{Function = } has no attribute {function = }.")
+        if isinstance(supplier, BarFeatureSupplier):
+            for function in functions:
+                for type_attr in type_attributes:
+                    column = supplier.get_col(BarFeatures, type_attr)
 
-                self.data = supplier.data.with_columns([func(column, window_size)])
-                print(self.data.columns)
+                    try:
+                        func = getattr(Function, function)
+                    except AttributeError:
+                        raise ValueError(
+                            f"{Function = } has no attribute {function = }."
+                        )
+
+                    self.data = supplier.data.with_columns([func(column, window_size)])
+
+        elif isinstance(supplier, MultiplexSupplier):
+            for function in functions:
+                for type_attr in type_attributes:
+                    columns = supplier.get_cols(BarFeatures, type_attr)
+
+                    try:
+                        func = getattr(Function, function)
+                    except AttributeError:
+                        raise ValueError(
+                            f"{Function = } has no attribute {function = }."
+                        )
+                    self.data = supplier.data.with_columns(
+                        [func(column, window_size) for column in columns]
+                    )
+        else:
+            raise ValueError(f"{supplier = } type not supported.")
 
     @property
     def instruments(self) -> list[str]:
