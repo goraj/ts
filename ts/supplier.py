@@ -376,23 +376,23 @@ class BarFeatureSupplier(BaseSupplier):
             ]
         )
 
-        # volatility features
-        # positive realized variance
-        self.data = self.data.filter(
-            pl.col(self.supplier.get_col(Bar, Bar.RETURN)) > 0
-        ).with_columns(
-            np.sqrt(np.square(pl.col(self.supplier.get_col(Bar, Bar.RETURN))).cumsum())
-            .over(pl.col(self.supplier.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
-            .alias(BarFeatures.POS_REALIZED_VARIANCE)
-        )
-
-        # negative realized variance
-        self.data = self.data.filter(
-            pl.col(self.supplier.get_col(Bar, Bar.RETURN)) < 0
-        ).with_columns(
-            np.sqrt(np.square(pl.col(self.supplier.get_col(Bar, Bar.RETURN))).cumsum())
-            .over(pl.col(self.supplier.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
-            .alias(BarFeatures.NEG_REALIZED_VARIANCE)
+        self.data = self.data.with_columns(
+            [
+                pl.when(pl.col(self.get_col(Bar, Bar.RETURN)) > 0)
+                .then(
+                    np.sqrt(np.square(pl.col(self.get_col(Bar, Bar.RETURN))).cumsum())
+                    .over(pl.col(self.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
+                    .alias(BarFeatures.POS_REALIZED_VARIANCE)
+                )
+                .otherwise(0),
+                pl.when(pl.col(self.get_col(Bar, Bar.RETURN)) < 0)
+                .then(
+                    np.sqrt(np.square(pl.col(self.get_col(Bar, Bar.RETURN))).cumsum())
+                    .over(pl.col(self.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
+                    .alias(BarFeatures.NEG_REALIZED_VARIANCE)
+                )
+                .otherwise(0),
+            ]
         )
 
     @property
@@ -525,7 +525,6 @@ class RollingFeaturesSupplier(BaseSupplier):
         if isinstance(supplier, BarFeatureSupplier):
             for function in functions:
                 for type_attr in type_attributes:
-                    print(f"{type_attr =}")
                     column = supplier.get_col(BarFeatures, type_attr)
 
                     try:
@@ -540,7 +539,6 @@ class RollingFeaturesSupplier(BaseSupplier):
         elif isinstance(supplier, MultiplexSupplier):
             for function in functions:
                 for type_attr in type_attributes:
-                    print(f"{type_attr =}")
                     columns = supplier.get_cols(BarFeatures, type_attr)
 
                     try:
