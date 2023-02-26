@@ -141,12 +141,12 @@ class BarSupplier(BaseSupplier):
 
         match bar_aggregation:
             case BarAggregation.VOLUME:
-                # self.index = f"{self.alias}-{Bar.VOLUME}"
+                self.index = f"{self.alias}-{Bar.VOLUME}"
                 self.data = self._aggregate_bar(
                     data=self.supplier.data,
                     bar_aggregation=bar_aggregation,
                     size=self.size,
-                ).with_column(
+                ).with_columns(
                     pl.col(f"{self.alias}-{Bar.CLOSE}")
                     .pct_change()
                     .fill_null(0)
@@ -207,7 +207,7 @@ class BarSupplier(BaseSupplier):
             case BarAggregation.VOLUME:
                 temp_alias = f"{self.alias}-{Bar.__INDEX__}"
                 data = (
-                    data.with_column(
+                    data.with_columns(
                         (
                             (pl.col(TradeTick.QUANTITY).cumsum() / size).cast(
                                 pl.UInt64, strict=False
@@ -267,8 +267,10 @@ class BarSupplier(BaseSupplier):
             for col in self.data.columns
             if match_col(col_type.alias(), type_attr, col)
         ]
-        if columns:
-            return columns[0]
+        if not columns:
+            raise ValueError(f"{col_type = } has no {type_attr =}")
+
+        return columns[0]
 
 
 class BarFeatureSupplier(BaseSupplier):
@@ -390,8 +392,10 @@ class BarFeatureSupplier(BaseSupplier):
             for col in self.data.columns
             if match_col(col_type.alias(), type_attr, col)
         ]
-        if columns:
-            return columns[0]
+        if not columns:
+            raise ValueError(f"{col_type = } has no {type_attr =}")
+
+        return columns[0]
 
 
 class MultiplexSupplier(BaseSupplier):
@@ -459,11 +463,45 @@ class MultiplexSupplier(BaseSupplier):
         ]
 
 
+class Function:
+    Z_SCORE = "z_score"
+
+    @staticmethod
+    def alias():
+        return SupplierType.ROLLING_FEATURES
+
+    @staticmethod
+    def z_score(column: str, window_size: int):
+        return (
+            pl.col(column)
+            - pl.col(column).rolling_mean(window_size)
+            / pl.col(column).rolling_std(window_size)
+        ).alias(f"{Function.alias()}-{column}-{Function.Z_SCORE}-{window_size}")
+
+
 class RollingFeaturesSupplier(BaseSupplier):
     supplier_type = "RollingFeaturesSupplier"
 
-    def __init__(self, supplier: BarSupplier):
-        raise NotImplementedError
+    def __init__(
+        self,
+        supplier: BarFeatureSupplier,
+        type_attributes: list[str],
+        functions: list[str],
+        window_size: int = 10,
+    ):
+        self.alias = SupplierType.MULTIPLEX
+        for function in functions:
+            for type_attr in type_attributes:
+                column = supplier.get_col(BarFeatures, type_attr)
+                print(f"{column =}")
+
+                try:
+                    func = getattr(Function, function)
+                except AttributeError:
+                    raise ValueError(f"{Function = } has no attribute {function = }.")
+
+                self.data = supplier.data.with_columns([func(column, window_size)])
+                print(self.data.columns)
 
     @property
     def instruments(self) -> list[str]:

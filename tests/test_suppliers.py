@@ -4,7 +4,17 @@ import zoneinfo
 import polars as pl
 import pytest
 
-from ts.supplier import BarAggregation, BarSupplier, MultiplexSupplier, TickSupplier
+from ts.supplier import (
+    Bar,
+    BarAggregation,
+    BarFeatures,
+    BarFeatureSupplier,
+    BarSupplier,
+    Function,
+    MultiplexSupplier,
+    RollingFeaturesSupplier,
+    TickSupplier,
+)
 
 
 def make_tick_supplier(instrument: str) -> TickSupplier:
@@ -53,6 +63,12 @@ def bar_supplier(tick_supplier):
     supplier = BarSupplier(
         supplier=tick_supplier, bar_aggregation=BarAggregation.VOLUME, size=1
     )
+    return supplier
+
+
+@pytest.fixture
+def barfeature_supplier(bar_supplier):
+    supplier = BarFeatureSupplier(supplier=bar_supplier)
     return supplier
 
 
@@ -114,3 +130,16 @@ class TestMultiplexSupplier:
     def test_data(self, bar_suppliers):
         multiplex_supplier = MultiplexSupplier(suppliers=bar_suppliers)
         assert len(multiplex_supplier.data.columns) == 22
+
+
+class TestRollingFeaturesSupplier:
+    def test_z_score(self, barfeature_supplier):
+        rolling_feat = RollingFeaturesSupplier(
+            barfeature_supplier,
+            functions=[Function.Z_SCORE],
+            type_attributes=[BarFeatures.OFI],
+        )
+        assert (
+            "rolling_features-bar_features-bar-CME-HO-volume_agg-1-ofi-z_score-10"
+            in rolling_feat.data.columns
+        )
