@@ -497,10 +497,13 @@ class RollingFeaturesSupplier(BaseSupplier):
         window_size: int = 10,
     ):
         self.alias = SupplierType.MULTIPLEX
+        self.data = supplier.data
 
+        with_columns_arg = []
         if isinstance(supplier, BarFeatureSupplier):
             for function in functions:
                 for type_attr in type_attributes:
+                    print(f"{type_attr =}")
                     column = supplier.get_col(BarFeatures, type_attr)
 
                     try:
@@ -510,11 +513,12 @@ class RollingFeaturesSupplier(BaseSupplier):
                             f"{Function = } has no attribute {function = }."
                         )
 
-                    self.data = supplier.data.with_columns([func(column, window_size)])
+                    with_columns_arg.append([func(column, window_size)])
 
         elif isinstance(supplier, MultiplexSupplier):
             for function in functions:
                 for type_attr in type_attributes:
+                    print(f"{type_attr =}")
                     columns = supplier.get_cols(BarFeatures, type_attr)
 
                     try:
@@ -523,11 +527,14 @@ class RollingFeaturesSupplier(BaseSupplier):
                         raise ValueError(
                             f"{Function = } has no attribute {function = }."
                         )
-                    self.data = supplier.data.with_columns(
+
+                    with_columns_arg.extend(
                         [func(column, window_size) for column in columns]
                     )
         else:
             raise ValueError(f"{supplier = } type not supported.")
+
+        self.data = self.data.with_columns(with_columns_arg)
 
     @property
     def instruments(self) -> list[str]:
