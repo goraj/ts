@@ -104,6 +104,9 @@ class BarFeatures(Bar):
     OPEN_CLOSE = "open_close"
     SIGNAL = "signal"
 
+    POS_REALIZED_VARIANCE = "pos_realized_variance"
+    NEG_REALIZED_VARIANCE = "neg_realized_variance"
+
 
 class BaseSupplier(ABC):
     supplier_type = "BaseSupplier"
@@ -373,6 +376,25 @@ class BarFeatureSupplier(BaseSupplier):
             ]
         )
 
+        # volatility features
+        # positive realized variance
+        self.data = self.data.filter(
+            pl.col(self.supplier.get_col(Bar, Bar.RETURN)) > 0
+        ).with_columns(
+            np.sqrt(np.square(pl.col(self.supplier.get_col(Bar, Bar.RETURN))).cumsum())
+            .over(pl.col(self.supplier.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
+            .alias(BarFeatures.POS_REALIZED_VARIANCE)
+        )
+
+        # negative realized variance
+        self.data = self.data.filter(
+            pl.col(self.supplier.get_col(Bar, Bar.RETURN)) < 0
+        ).with_columns(
+            np.sqrt(np.square(pl.col(self.supplier.get_col(Bar, Bar.RETURN))).cumsum())
+            .over(pl.col(self.supplier.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
+            .alias(BarFeatures.NEG_REALIZED_VARIANCE)
+        )
+
     @property
     def instruments(self) -> list[str]:
         return [self.instrument]
@@ -513,7 +535,7 @@ class RollingFeaturesSupplier(BaseSupplier):
                             f"{Function = } has no attribute {function = }."
                         )
 
-                    with_columns_arg.append([func(column, window_size)])
+                    with_columns_arg.extend([func(column, window_size)])
 
         elif isinstance(supplier, MultiplexSupplier):
             for function in functions:
@@ -528,9 +550,9 @@ class RollingFeaturesSupplier(BaseSupplier):
                             f"{Function = } has no attribute {function = }."
                         )
 
-                    with_columns_arg.extend(
-                        [func(column, window_size) for column in columns]
-                    )
+                    with_columns_arg += [
+                        func(column, window_size) for column in columns
+                    ]
         else:
             raise ValueError(f"{supplier = } type not supported.")
 
