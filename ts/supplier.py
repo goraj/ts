@@ -382,14 +382,14 @@ class BarFeatureSupplier(BaseSupplier):
                 .then(
                     np.sqrt(np.square(pl.col(self.get_col(Bar, Bar.RETURN))).cumsum())
                     .over(pl.col(self.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
-                    .alias(BarFeatures.POS_REALIZED_VARIANCE)
+                    .alias(f"{self.alias}-{BarFeatures.POS_REALIZED_VARIANCE}")
                 )
                 .otherwise(0),
                 pl.when(pl.col(self.get_col(Bar, Bar.RETURN)) < 0)
                 .then(
                     np.sqrt(np.square(pl.col(self.get_col(Bar, Bar.RETURN))).cumsum())
                     .over(pl.col(self.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
-                    .alias(BarFeatures.NEG_REALIZED_VARIANCE)
+                    .alias(f"{self.alias}-{BarFeatures.NEG_REALIZED_VARIANCE}")
                 )
                 .otherwise(0),
             ]
@@ -462,6 +462,8 @@ class MultiplexSupplier(BaseSupplier):
         left_supplier = suppliers[0]
         left_index_col = left_supplier.index
 
+        self.index = left_index_col
+
         self.data = left_supplier.data
         self._instruments.append(left_supplier.instrument)
         for supplier in suppliers[1:]:
@@ -471,6 +473,7 @@ class MultiplexSupplier(BaseSupplier):
             )
             if supplier.instrument not in self._instruments:
                 self._instruments.append(supplier.instrument)
+        self.data = self.data.fill_null(strategy="forward")
 
     @property
     def instruments(self) -> list[str]:

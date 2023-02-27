@@ -1,12 +1,9 @@
-### ts
-
-Currently implemented:
-* Bar-aggregation (TIME, VOLUME)
-* BarFeatures
+# ts
+_ts_ is an experimental Python 3 library for tick-data processing.
 
 #### Example:
 ```python
-filepath = "/Users/jacob/projects/data/continuous_futures/CME-HO.parquet"
+filepath = "/data/continuous_futures/CME-HO.parquet"
 tick_supplier = TickSupplier(instrument="CME-HO")
 tick_supplier.from_parquet(filepath)
 
@@ -74,64 +71,83 @@ pprint(
 ```
 ---
 
-### API Draft
-Join multiple bar aggregations / time-frames
+### Example
+Join multiple suppliers and featurize them and calculate rolling z-scores.
 ```python
-from ts.supplier import TickSupplier
-from ts.supplier import BarSupplier, Bar
-from ts.supplier import BarAggregation
-from ts.supplier import BarFeatureSupplier, BarFeatures
-
-from ts.supplier import MultiplexSupplier
-from ts.supplier import JOIN_TYPE
-
-filepath = "/Users/jacob/projects/data/continuous_futures/CME-HO.parquet"
-tick_supplier = TickSupplier(instrument="CME-HO")
+filepath = "/data/continuous_futures/CBOT-ZN.parquet"
+tick_supplier = TickSupplier(instrument="CBOT-ZN")
 tick_supplier.from_parquet(filepath)
 
+suppliers = [
+    BarFeatureSupplier(
+        supplier=BarSupplier(
+            supplier=tick_supplier,
+            bar_aggregation=BarAggregation.VOLUME,
+            size=10
+        )
+    ),
+    BarFeatureSupplier(
+        supplier=BarSupplier(
+            supplier=tick_supplier,
+            bar_aggregation=BarAggregation.VOLUME,
+            size=50
+        )
+    ),
+    BarFeatureSupplier(
+        supplier=BarSupplier(
+            supplier=tick_supplier,
+            bar_aggregation=BarAggregation.VOLUME,
+            size=500
+        )
+    )
+]
 
-supplier = MultiplexSupplier(
-    join_on=JOIN_TYPE.ON_TIME,
-    suppliers=[
-        RollingNormSupplier(
-            supplier=BarFeatureSupplier(
-                supplier=BarSupplier(
-                    tick_supplier,
-                    bar_aggregation=BarAggregation.VOLUME,
-                    size=1_000
-                )
-            ),
-            window=200,
-        ),
-        RollingNormSupplier(
-            supplier=BarFeatureSupplier(
-                supplier=BarSupplier(
-                    tick_supplier,
-                    bar_aggregation=BarAggregation.VOLUME,
-                    size=10_000
-                )
-            ),
-            window=20,
-        ),
-    ]
-)
-train, test = split(supplier)
-model.fit(
-    train.drop_future()
+multiplex_supplier = MultiplexSupplier(suppliers=suppliers)
+
+rolling_feat_supplier = RollingFeaturesSupplier(
+    supplier=multiplex_supplier,
+    functions=[Function.Z_SCORE],
+    type_attributes=[
+        # OFI / Tape
+        BarFeatures.OFI_NORMALIZED,
+        BarFeatures.OFI,
+
+        BarFeatures.ASK_SIZE,
+        BarFeatures.BID_SIZE,
+
+        BarFeatures.ASK_SIZE_TIMEDELTA,
+        BarFeatures.BID_SIZE_TIMEDELTA,
+
+        BarFeatures.RETURN_TIMEDELTA,
+
+        BarFeatures.RETURN_BID_SIZE,
+        BarFeatures.RETURN_ASK_SIZE,
+
+        # Volume
+        BarFeatures.CUMULATIVE_VOLUME_DELTA,
+        BarFeatures.VOLUME_DELTA,
+        BarFeatures.VOLUME,
+
+        # Volatility
+        BarFeatures.POS_REALIZED_VARIANCE,
+        BarFeatures.NEG_REALIZED_VARIANCE,
+
+        #
+        BarFeatures.INTERNAL_BAR_STRENGTH
+    ],
+    window_size=5
 )
 ```
 
 
-### To-do
+### TODO:
 * SyntheticInstrumentSupplier: Build signal off multiple assets / signals.
 * SpreadSupplier: Calculates spread based off multiple assets / signals.
-* RollingFeaturesSupplier: Calculates different features over a rolling window.
-* Feature calculations:
-  * Features.CORRELATION
-  * Features.VWAP
-  * Features.TWAP
-  * Features.KALMANFILTER
-  * Features.EWMA
-  * Features.MA
-  * Features.VOLATILITY
-* RollingNormSupplier: Normalize assets / features / bars according.
+* Function:
+  * Function.CORRELATION
+  * Function.VWAP
+  * Function.TWAP
+  * Function.KALMANFILTER
+  * Function.EWMA
+  * Function.MA
+  * Function.VOLATILITY
