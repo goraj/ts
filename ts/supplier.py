@@ -71,7 +71,7 @@ def match_col(col_alias: str, col_attr: str, column: str) -> bool:
     return match(f"^{col_alias}.*-{col_attr}($|-.*)", column) is not None
 
 
-class BarFeatures(Bar):
+class BarFeature(Bar):
     @staticmethod
     def alias():
         return SupplierType.BAR_FEATURES
@@ -79,7 +79,7 @@ class BarFeatures(Bar):
     @staticmethod
     def get_members():
         return [
-            e for e in list(BarFeatures.__dict__) if e.upper() == e and "__" not in e
+            e for e in list(BarFeature.__dict__) if e.upper() == e and "__" not in e
         ]
 
     # velocity ratios
@@ -199,7 +199,7 @@ class BarSupplier(BaseSupplier):
                 (
                     pl.col(TradeTick.TIMESTAMP).last()
                     - pl.col(TradeTick.TIMESTAMP).first()
-                ).dt.seconds()
+                ).dt.milliseconds()
             ).alias(f"{self.alias}-{Bar.TIMEDELTA}"),
             ((pl.col(TradeTick.SIDE) == 0) * pl.col(TradeTick.QUANTITY))
             .sum()
@@ -267,7 +267,7 @@ class BarSupplier(BaseSupplier):
     def from_parquet(self, filepath: str):
         self.data = pl.read_parquet(filepath)
 
-    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str | None:
+    def get_col(self, col_type: Bar | BarFeature, type_attr: str) -> str | None:
         columns = [
             col
             for col in self.data.columns
@@ -295,36 +295,36 @@ class BarFeatureSupplier(BaseSupplier):
                 (
                     pl.col(f"{supplier.alias}-{Bar.RETURN}")
                     / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
-                ).alias(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}"),
+                ).alias(f"{self.alias}-{BarFeature.RETURN_TIMEDELTA}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
                     / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
                 )
                 .fill_nan(0)
-                .alias(f"{self.alias}-{BarFeatures.BID_SIZE_TIMEDELTA}"),
+                .alias(f"{self.alias}-{BarFeature.BID_SIZE_TIMEDELTA}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
                     / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
-                ).alias(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}"),
+                ).alias(f"{self.alias}-{BarFeature.ASK_SIZE_TIMEDELTA}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
                     - pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
-                ).alias(f"{self.alias}-{BarFeatures.VOLUME_DELTA}"),
+                ).alias(f"{self.alias}-{BarFeature.VOLUME_DELTA}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
                     + pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
-                ).alias(f"{self.alias}-{BarFeatures.VOLUME}"),
+                ).alias(f"{self.alias}-{BarFeature.VOLUME}"),
             ]
         ).with_columns(
             [
                 pl.when(
                     pl.col(
-                        f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}"
+                        f"{self.alias}-{BarFeature.ASK_SIZE_TIMEDELTA}"
                     ).is_infinite()
-                    | pl.col(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}").is_nan()
+                    | pl.col(f"{self.alias}-{BarFeature.ASK_SIZE_TIMEDELTA}").is_nan()
                 )
                 .then(float(0))
-                .otherwise(pl.col(f"{self.alias}-{BarFeatures.ASK_SIZE_TIMEDELTA}"))
+                .otherwise(pl.col(f"{self.alias}-{BarFeature.ASK_SIZE_TIMEDELTA}"))
                 .keep_name(),
                 # pl.when(
                 #     pl.col(f"{supplier.alias}-{Bar.BID_SIZE}").is_infinite()
@@ -334,45 +334,55 @@ class BarFeatureSupplier(BaseSupplier):
                 # .otherwise(pl.col(f"{self.alias}-{BarFeatures.BID_SIZE_TIMEDELTA}"))
                 # .keep_name(),
                 pl.when(
-                    pl.col(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}").is_infinite()
-                    | pl.col(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}").is_nan()
+                    pl.col(f"{self.alias}-{BarFeature.RETURN_TIMEDELTA}").is_infinite()
+                    | pl.col(f"{self.alias}-{BarFeature.RETURN_TIMEDELTA}").is_nan()
                 )
                 .then(float(0))
-                .otherwise(pl.col(f"{self.alias}-{BarFeatures.RETURN_TIMEDELTA}"))
+                .otherwise(pl.col(f"{self.alias}-{BarFeature.RETURN_TIMEDELTA}"))
                 .keep_name(),
                 (
                     pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
                     - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
-                ).alias(f"{self.alias}-{BarFeatures.OFI}"),
+                ).alias(f"{self.alias}-{BarFeature.OFI}"),
                 (
                     (
                         pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
                         - pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
                     )
                     / pl.col(f"{self.alias}-{Bar.VOLUME}")
-                ).alias(f"{self.alias}-{BarFeatures.OFI_NORMALIZED}"),
+                ).alias(f"{self.alias}-{BarFeature.OFI_NORMALIZED}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.OPEN}")
                     / pl.col(f"{supplier.alias}-{Bar.HIGH}")
-                ).alias(f"{self.alias}-{BarFeatures.OPEN_HIGH}"),
+                ).alias(f"{self.alias}-{BarFeature.OPEN_HIGH}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.OPEN}")
                     / pl.col(f"{supplier.alias}-{Bar.LOW}")
-                ).alias(f"{self.alias}-{BarFeatures.OPEN_LOW}"),
+                ).alias(f"{self.alias}-{BarFeature.OPEN_LOW}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.OPEN}")
                     / pl.col(f"{supplier.alias}-{Bar.CLOSE}")
-                ).alias(f"{self.alias}-{BarFeatures.OPEN_CLOSE}"),
+                ).alias(f"{self.alias}-{BarFeature.OPEN_CLOSE}"),
                 (
-                    (
-                        pl.col(f"{supplier.alias}-{Bar.CLOSE}")
-                        - pl.col(f"{supplier.alias}-{Bar.LOW}")
+                    pl.when(
+                        (
+                            pl.col(f"{supplier.alias}-{Bar.HIGH}")
+                            - pl.col(f"{supplier.alias}-{Bar.LOW}")
+                        )
+                        == 0
                     )
-                    / (
-                        pl.col(f"{supplier.alias}-{Bar.HIGH}")
-                        - pl.col(f"{supplier.alias}-{Bar.LOW}")
+                    .then(float(0))
+                    .otherwise(
+                        (
+                            pl.col(f"{supplier.alias}-{Bar.CLOSE}")
+                            - pl.col(f"{supplier.alias}-{Bar.LOW}")
+                        )
+                        / (
+                            pl.col(f"{supplier.alias}-{Bar.HIGH}")
+                            - pl.col(f"{supplier.alias}-{Bar.LOW}")
+                        )
                     )
-                ).alias(f"{self.alias}-{BarFeatures.INTERNAL_BAR_STRENGTH}"),
+                ).alias(f"{self.alias}-{BarFeature.INTERNAL_BAR_STRENGTH}"),
             ]
         )
 
@@ -382,14 +392,14 @@ class BarFeatureSupplier(BaseSupplier):
                 .then(
                     np.sqrt(np.square(pl.col(self.get_col(Bar, Bar.RETURN))).cumsum())
                     .over(pl.col(self.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
-                    .alias(f"{self.alias}-{BarFeatures.POS_REALIZED_VARIANCE}")
+                    .alias(f"{self.alias}-{BarFeature.POS_REALIZED_VARIANCE}")
                 )
                 .otherwise(0),
                 pl.when(pl.col(self.get_col(Bar, Bar.RETURN)) < 0)
                 .then(
                     np.sqrt(np.square(pl.col(self.get_col(Bar, Bar.RETURN))).cumsum())
                     .over(pl.col(self.get_col(Bar, Bar.TIMESTAMP)).dt.epoch(tu="d"))
-                    .alias(f"{self.alias}-{BarFeatures.NEG_REALIZED_VARIANCE}")
+                    .alias(f"{self.alias}-{BarFeature.NEG_REALIZED_VARIANCE}")
                 )
                 .otherwise(0),
             ]
@@ -405,13 +415,13 @@ class BarFeatureSupplier(BaseSupplier):
 
     @property
     def bar_features(self) -> list[str]:
-        feature_attributes = BarFeatures.get_members()
+        feature_attributes = BarFeature.get_members()
         return [
             f"{self.alias}-{feature_attribute}"
             for feature_attribute in feature_attributes
         ]
 
-    def get_col(self, col_type: Bar | BarFeatures, type_attr: str) -> str | None:
+    def get_col(self, col_type: type[Bar | BarFeature], type_attr: str) -> str | None:
         columns = [
             col
             for col in self.data.columns
@@ -426,7 +436,7 @@ class BarFeatureSupplier(BaseSupplier):
 class MultiplexSupplier(BaseSupplier):
     supplier_type = "MultiplexSupplier"
 
-    def __init__(self, suppliers: list[BarSupplier, BarFeatureSupplier]):
+    def __init__(self, suppliers: list[BarSupplier | BarFeatureSupplier]):
         self.alias = SupplierType.MULTIPLEX
         self._instruments = []
         self._bar_features = []
@@ -487,7 +497,9 @@ class MultiplexSupplier(BaseSupplier):
             if SupplierType.BAR_FEATURES in column
         ]
 
-    def get_cols(self, col_type: Bar | BarFeatures, type_attr: str) -> list[str] | None:
+    def get_cols(
+        self, col_type: type[Bar | BarFeature], type_attr: str
+    ) -> list[str] | None:
         return [
             col
             for col in self.data.columns
@@ -511,7 +523,7 @@ class Function:
         ).alias(f"{Function.alias()}-{column}-{Function.Z_SCORE}-{window_size}")
 
 
-class RollingFeaturesSupplier(BaseSupplier):
+class RollingFeatureSupplier(BaseSupplier):
     supplier_type = "RollingFeaturesSupplier"
 
     def __init__(
@@ -528,7 +540,7 @@ class RollingFeaturesSupplier(BaseSupplier):
         if isinstance(supplier, BarFeatureSupplier):
             for function in functions:
                 for type_attr in type_attributes:
-                    column = supplier.get_col(BarFeatures, type_attr)
+                    column = supplier.get_col(BarFeature, type_attr)
 
                     try:
                         func = getattr(Function, function)
@@ -542,7 +554,7 @@ class RollingFeaturesSupplier(BaseSupplier):
         elif isinstance(supplier, MultiplexSupplier):
             for function in functions:
                 for type_attr in type_attributes:
-                    columns = supplier.get_cols(BarFeatures, type_attr)
+                    columns = supplier.get_cols(BarFeature, type_attr)
 
                     try:
                         func = getattr(Function, function)

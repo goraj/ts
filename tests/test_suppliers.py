@@ -7,12 +7,12 @@ import pytest
 from ts.supplier import (
     Bar,
     BarAggregation,
-    BarFeatures,
+    BarFeature,
     BarFeatureSupplier,
     BarSupplier,
     Function,
     MultiplexSupplier,
-    RollingFeaturesSupplier,
+    RollingFeatureSupplier,
     TickSupplier,
 )
 
@@ -102,7 +102,7 @@ class TestBarSupplier:
         assert sorted(bar_supplier.bars) == sorted(bar_supplier.data.columns)
 
     def test_get_col(self, bar_supplier):
-        from ts.supplier import Bar, BarFeatures
+        from ts.supplier import Bar, BarFeature
 
         assert bar_supplier.get_col(Bar, Bar.VOLUME) == "bar-CME-HO-volume_agg-1-volume"
 
@@ -132,12 +132,12 @@ class TestMultiplexSupplier:
         assert len(multiplex_supplier.data.columns) == 22
 
 
-class TestRollingFeaturesSupplier:
+class TestRollingFeatureSupplier:
     def test_z_score(self, barfeature_supplier):
-        rolling_feat = RollingFeaturesSupplier(
+        rolling_feat = RollingFeatureSupplier(
             barfeature_supplier,
             functions=[Function.Z_SCORE],
-            type_attributes=[BarFeatures.OFI],
+            type_attributes=[BarFeature.OFI],
         )
         assert (
             "rolling_features-bar_features-bar-CME-HO-volume_agg-1-ofi-z_score-10"
