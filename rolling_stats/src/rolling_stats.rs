@@ -16,8 +16,8 @@ impl Default for RollingStatistics {
             n: 0.0,
             sum: 0.0,
             m2: 0.0,
-            window_size: 20,
-            data: VecDeque::with_capacity(20)
+            window_size: 20 * 12 * 5 * 100,
+            data: VecDeque::with_capacity(20 * 12 * 5 * 100)
         }
     }
 }
@@ -82,10 +82,11 @@ pub struct BinnedRollingStatistics {
     window_size: usize,
     hash_map: HashMap<u16, RollingStatistics>,
 }
+
 impl Default for BinnedRollingStatistics {
     fn default() -> Self {
         BinnedRollingStatistics {
-            window_size: 20,
+            window_size: 20 * 12 * 5 * 100,
             hash_map: HashMap::new(),
         }
     }
@@ -103,16 +104,14 @@ impl BinnedRollingStatistics {
 
     fn _key(hour: u8, minute: u8) -> u16 {
         let bin_size = 5;
-        let hour: u8 = 12;
-        let minute: u8 = 9 / bin_size;
-        let key: u16 = (hour as u16) << 8 | (minute as u16);
+        let key: u16 = (hour as u16) << 8 | ((minute / bin_size) as u16);
         return key;
     }
 
-    pub fn update(&mut self, hour: u8, minute: u8, volume: f64) {
+    pub fn update(&mut self, hour: u8, minute: u8, value: f64) {
         let key = BinnedRollingStatistics::_key(hour, minute);
         self.hash_map.entry(key)
-            .or_insert(RollingStatistics::new(self.window_size)).update(volume);
+            .or_insert(RollingStatistics::new(self.window_size)).update(value);
     }
 
     pub fn standard_deviation(&mut self, hour: u8, minute: u8) -> f64 {
@@ -124,4 +123,26 @@ impl BinnedRollingStatistics {
             return 0.;
         }
     }
+
+    pub fn mean(&mut self, hour: u8, minute: u8) -> f64 {
+        let key = BinnedRollingStatistics::_key(hour, minute);
+
+        if self.hash_map.contains_key(&key) {
+            return self.hash_map[&key].mean();
+        } else {
+            return 0.;
+        }
+    }
+
+    pub fn update_and_return_z_score(&mut self, hour: u8, minute: u8, value: f64) -> f64 {
+        self.update(hour, minute, value);
+
+        let sigma: f64 = self.standard_deviation(hour, minute);
+        match sigma {
+            std::f64::NAN => std::f64::NAN,
+            0.0 => 0.0,
+            _ => (value - self.mean(hour, minute)) / sigma
+        }
+    }
+
 }
