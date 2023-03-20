@@ -15,7 +15,7 @@ fn rolling_stats_impl(datetimes: &Series, values: &Series) -> PolarsResult<Serie
         datetimes
         .datetime()?
             .as_datetime_iter()
-            .map(|x| x.unwrap()) // shouldn't this be T<DateTime> or something? Not i64?
+            .map(|x| x.unwrap())
         .zip(
             values.f64()?
                 .into_iter()
@@ -25,7 +25,6 @@ fn rolling_stats_impl(datetimes: &Series, values: &Series) -> PolarsResult<Serie
             Ok(
                 Some(
                     binned_rolling_stats.update_and_return_z_score(
-                        // WRONG (???) why is this i64 what we really want is something like
                         dt.hour() as u8,
                         dt.minute() as u8,
                         value as f64
@@ -38,7 +37,7 @@ fn rolling_stats_impl(datetimes: &Series, values: &Series) -> PolarsResult<Serie
 }
 
 #[pyfunction]
-fn rolling_stats(py_datetimes: &PyAny, py_values: &PyAny) -> PyResult<PyObject> {
+fn pl_rolling_stats(py_datetimes: &PyAny, py_values: &PyAny) -> PyResult<PyObject> {
     let series_a = ffi::py_series_to_rust_series(py_datetimes)?;
     let series_b = ffi::py_series_to_rust_series(py_values)?;
 
@@ -48,7 +47,7 @@ fn rolling_stats(py_datetimes: &PyAny, py_values: &PyAny) -> PyResult<PyObject> 
 }
 
 #[pymodule]
-fn my_polars_functions(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_wrapped(wrap_pyfunction!(rolling_stats)).unwrap();
+fn polars_rollingstats(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_wrapped(wrap_pyfunction!(pl_rolling_stats)).unwrap();
     Ok(())
 }
