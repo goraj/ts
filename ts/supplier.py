@@ -128,7 +128,7 @@ class TickSupplier(BaseSupplier):
         self.data = None
 
     def from_parquet(self, filepath: str):
-        self.data = pl.read_parquet(filepath)
+        self.data = pl.scan_parquet(filepath)
 
     @property
     def instruments(self) -> list[str]:
@@ -199,7 +199,16 @@ class BarSupplier(BaseSupplier):
                 (
                     pl.col(TradeTick.TIMESTAMP).last()
                     - pl.col(TradeTick.TIMESTAMP).first()
-                ).dt.milliseconds()
+                )
+                .dt.seconds()
+                .cast(pl.Float64)
+                + (
+                    pl.col(TradeTick.TIMESTAMP).last()
+                    - pl.col(TradeTick.TIMESTAMP).first()
+                )
+                .dt.milliseconds()
+                .cast(pl.Float64)
+                * 0.001
             ).alias(f"{self.alias}-{Bar.TIMEDELTA}"),
             ((pl.col(TradeTick.SIDE) == 0) * pl.col(TradeTick.QUANTITY))
             .sum()
@@ -230,21 +239,31 @@ class BarSupplier(BaseSupplier):
 
             case BarAggregation.TIME_MILLISECONDS:
                 data = (
-                    data.groupby_dynamic(TradeTick.TIMESTAMP, every=f"{size}ms")
+                    data.groupby_dynamic(
+                        TradeTick.TIMESTAMP, every=f"{size}ms", period=f"{size}ms"
+                    )
                     .agg(agg_args)
                     .sort(f"{self.alias}-{Bar.TIMESTAMP}")
+                    .drop(TradeTick.TIMESTAMP)
                 )
                 return data
             case BarAggregation.TIME_SECONDS:
                 data = (
-                    data.groupby_dynamic(TradeTick.TIMESTAMP, every=f"{size}s")
+                    data.groupby_dynamic(
+                        TradeTick.TIMESTAMP, every=f"{size}s", period=f"{size}s"
+                    )
                     .agg(agg_args)
                     .sort(f"{self.alias}-{Bar.TIMESTAMP}")
+                    .drop(TradeTick.TIMESTAMP)
                 )
                 return data
             case BarAggregation.TIME_MINUTES:
                 data = (
-                    data.groupby_dynamic(TradeTick.TIMESTAMP, every=f"{60 * size}s")
+                    data.groupby_dynamic(
+                        TradeTick.TIMESTAMP,
+                        every=f"{60 * size}s",
+                        period=f"{60 * size}s",
+                    )
                     .agg(agg_args)
                     .sort(f"{self.alias}-{Bar.TIMESTAMP}")
                     .drop(TradeTick.TIMESTAMP)
@@ -265,7 +284,7 @@ class BarSupplier(BaseSupplier):
         return [self.instrument]
 
     def from_parquet(self, filepath: str):
-        self.data = pl.read_parquet(filepath)
+        self.data = pl.scan_parquet(filepath)
 
     def get_col(self, col_type: Bar | BarFeature, type_attr: str) -> str | None:
         columns = [
@@ -292,10 +311,13 @@ class BarFeatureSupplier(BaseSupplier):
 
         self.data = supplier.data.with_columns(
             [
+                # velocity
                 (
                     pl.col(f"{supplier.alias}-{Bar.RETURN}")
                     / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
-                ).alias(f"{self.alias}-{BarFeature.RETURN_TIMEDELTA}"),
+                )
+                .fill_nan(0)
+                .alias(f"{self.alias}-{BarFeature.RETURN_TIMEDELTA}"),
                 (
                     pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
                     / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
@@ -305,7 +327,10 @@ class BarFeatureSupplier(BaseSupplier):
                 (
                     pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
                     / pl.col(f"{supplier.alias}-{Bar.TIMEDELTA}")
-                ).alias(f"{self.alias}-{BarFeature.ASK_SIZE_TIMEDELTA}"),
+                )
+                .fill_nan(0)
+                .alias(f"{self.alias}-{BarFeature.ASK_SIZE_TIMEDELTA}"),
+                # volume / deltas
                 (
                     pl.col(f"{supplier.alias}-{Bar.ASK_SIZE}")
                     - pl.col(f"{supplier.alias}-{Bar.BID_SIZE}")
