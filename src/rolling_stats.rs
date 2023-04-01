@@ -64,17 +64,15 @@ impl RollingStatistics {
     pub fn standard_deviation(&self) -> f64 {
         if self.is_ready {
             return (self.m2 / (self.n - 1.0)).sqrt();
-        } else {
-            return std::f64::NAN
         }
+        return std::f64::NAN;
     }
 
     pub fn mean(&self) -> f64 {
         if self.is_ready {
             return self.sum / self.n;
-        } else {
-            return std::f64::NAN
         }
+        return std::f64::NAN;
     }
 }
 
@@ -119,9 +117,8 @@ impl BinnedRollingStatistics {
 
         if self.hash_map.contains_key(&key) {
             return self.hash_map[&key].standard_deviation();
-        } else {
-            return 0.;
         }
+        return 0.;
     }
 
     pub fn mean(&mut self, hour: u8, minute: u8) -> f64 {
@@ -129,9 +126,8 @@ impl BinnedRollingStatistics {
 
         if self.hash_map.contains_key(&key) {
             return self.hash_map[&key].mean();
-        } else {
-            return 0.;
         }
+        return 0.;
     }
 
     pub fn update_and_return_z_score(&mut self, hour: u8, minute: u8, value: f64) -> f64 {
@@ -139,8 +135,8 @@ impl BinnedRollingStatistics {
 
         let sigma: f64 = self.standard_deviation(hour, minute);
         match sigma {
-            std::f64::NAN => std::f64::NAN,
-            0.0 => 0.0,
+            sigma if sigma.is_nan() => std::f64::NAN,
+            sigma if sigma <= 0.0 && sigma >= 0.0  => 0.0,
             _ => (value - self.mean(hour, minute)) / sigma
         }
     }
