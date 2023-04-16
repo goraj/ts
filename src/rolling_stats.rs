@@ -65,14 +65,14 @@ impl RollingStatistics {
         if self.is_ready {
             return (self.m2 / (self.n - 1.0)).sqrt();
         }
-        return std::f64::NAN;
+        return f64::NAN;
     }
 
     pub fn mean(&self) -> f64 {
         if self.is_ready {
             return self.sum / self.n;
         }
-        return std::f64::NAN;
+        return f64::NAN;
     }
 }
 
@@ -135,7 +135,7 @@ impl BinnedRollingStatistics {
 
         let sigma: f64 = self.standard_deviation(hour, minute);
         match sigma {
-            sigma if sigma.is_nan() => std::f64::NAN,
+            sigma if sigma.is_nan() => f64::NAN,
             sigma if sigma <= 0.0 && sigma >= 0.0  => 0.0,
             _ => (value - self.mean(hour, minute)) / sigma
         }
